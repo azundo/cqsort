@@ -3,12 +3,17 @@ package cqsort
 import (
 	"testing"
 	"math/rand"
+	"sort"
 )
 
+var _ = sort.Ints
 func TestBasicSort(t *testing.T) {
-	unsorted := rand.Perm(100)
+	sortSize := 100000
+	unsorted := rand.Perm(sortSize)
 	Cqsort(unsorted)
-	for i := 0; i < 100; i++ {
+	// Qsort(unsorted)
+	// sort.Ints(unsorted)
+	for i := 0; i < sortSize; i++ {
 		if unsorted[i] != i {
 			t.Errorf("expecting sorted slice")
 		}
