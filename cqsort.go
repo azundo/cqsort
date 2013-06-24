@@ -2,61 +2,54 @@ package cqsort
 
 import (
 	"math/rand"
-	"fmt"
 )
 
-var _ = fmt.Println // comment out after debugging
+var MAXGOROUTINES = 10000
 
-const NCORES = 1
-
-func Qsort(s []int) {
+func Cqsort(s []int) {
 	if len(s) <= 1 {
 		return
 	}
-	pivot := partition(s)
-	Qsort(s[:pivot+1])
-	Qsort(s[pivot+1:])
-	return
+	workers := make(chan int, MAXGOROUTINES - 1)
+	for i := 0; i < (MAXGOROUTINES-1); i++ {
+		workers <- 1
+	}
+	cqsort(s, nil, workers)
 }
 
-func Cqsort(s []int) {
-
-	workerQueue := make(chan int, NCORES)
-	for i := 0 ; i < NCORES; i++ {
-		workerQueue <- 1
+func cqsort(s []int, done chan int, workers chan int) {
+	// report to caller that we're finished
+	if done != nil {
+		defer func() { done <- 1 }()
 	}
-	doneChan := make(chan int)
-	var innerCqsort func([]int, chan int, chan int)
-	innerCqsort = func(s []int, workerQueue chan int, dChan chan int) {
-		if len(s) <= 1 {
-			dChan <- 1
-			return
-		}
-		// all the work happens in partition so pull from the workerQueue here
-		<-workerQueue
-		pivot := partition(s)
-		// the hard work is done so allow another worker to go
-		workerQueue <- 1
-		// channels for recursive calls to signal they are done
-		lChan := make(chan int)
-		rChan := make(chan int)
-		go innerCqsort(s[:pivot+1], workerQueue, lChan)
-		go innerCqsort(s[pivot+1:], workerQueue, rChan)
-		// block until the l and r channels report they are finished
-		for i := 0; i < 2; i++ {
-			select {
-			case <-lChan:
-				// left is done
-			case <-rChan:
-				// right is done
-			}
-		}
-		// report to caller that we're finished
-		dChan <- 1
+
+	if len(s) <= 1 {
 		return
 	}
-	go innerCqsort(s, workerQueue, doneChan)
-	<-doneChan
+	// since we may use the doneChannel synchronously
+	// we need to buffer it so the synchronous code will
+	// continue executing and not block waiting for a read
+	doneChannel := make(chan int, 1)
+
+	pivotIdx := partition(s)
+
+	select {
+	case <-workers:
+		// if we have spare workers, use a goroutine
+		// for parallelization
+		go cqsort(s[:pivotIdx+1], doneChannel, workers)
+	default:
+		// if no spare workers, sort synchronously
+		cqsort(s[:pivotIdx+1], nil, workers)
+		// calling this here as opposed to using the defer
+		doneChannel <- 1
+	}
+	// use the existing goroutine to sort above the pivot
+	cqsort(s[pivotIdx+1:], nil, workers)
+	// if we used a goroutine we'll need to wait for
+	// the async signal on this channel, if not there
+	// will already be a value in the channel and it shouldn't block
+	<-doneChannel
 	return
 }
 
@@ -79,5 +72,15 @@ func partition(s []int) (swapIdx int) {
 func pickPivot(s []int)(pivotIdx int, pivot int) {
 	pivotIdx = rand.Intn(len(s))
 	pivot = s[pivotIdx]
+	return
+}
+
+func Qsort(s []int) {
+	if len(s) <= 1 {
+		return
+	}
+	pivotIdx := partition(s)
+	Qsort(s[:pivotIdx+1])
+	Qsort(s[pivotIdx+1:])
 	return
 }
